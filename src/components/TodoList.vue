@@ -1,6 +1,7 @@
 <template>
   <div class="container">
-    <div style="flex: 1;">
+
+    <div class="form">
       <div class="input__div">
         <div class="input__wrapper">
           <input type="text" placeholder="Things needs to be done." v-model="newTodo" @keyup.enter="addTodo" />
@@ -10,21 +11,30 @@
 
       <div class="todo-list">
         <!-- Loop Over All Todos -->
-        <div v-for="todo in todos" :key="todo.id" class="list">
+        <div v-for="todo in todos" :key="todo.id" class="list" :class="{ completed: todo.complete }">
           <!-- Show Label -->
           <label class="material-checkbox">
-            <input type="checkbox" v-model="todo.completed">
+            <input type="checkbox" v-model="todo.complete" @change="completeTodo(todo)" :disabled="todo.complete">
             <span></span>
           </label>
-          <div class="text" :class="{completed: todo.completed}" v-if="!todo.editing" @dblclick="todo.editing = true; editTodoCache=todo.text">{{ todo.text }}</div>
+          <div class="text" v-if="!todo.editing" @click="todo.editing = true; editTodoCache=todo.description">
+            {{ todo.description }}
+          </div>
           <!-- Show Text Box -->
           <div class="input__div" v-else>
             <div class="input__wrapper">
-              <input type="text" v-focus v-model="todo.text" @keyup.enter="editTodo(todo)" @keyup.esc="cancelEdit(todo)" @blur="cancelEdit(todo)"/>
+              <input type="text" v-focus v-model="todo.description" @keyup.enter="editTodo(todo)" @keyup.esc="cancelEdit(todo)" @blur="cancelEdit(todo)"/>
             </div>
             <div class="border"></div>
           </div>
+          <div @click="deleteTodo(todo)" class="delete-item">
+            <img alt="Vue logo" src="../assets/delete.png">
+          </div>
+
+        </div>
       </div>
+      <div class="loading" v-if="loading">
+        <img alt="Loading" src="../assets/logo.png">
       </div>
     </div>
     <footer>
@@ -34,56 +44,98 @@
 </template>
 
 <script>
+import ToDoService from "../services/ToDoService";
+
 export default {
   name: "TodoList",
 
   data() {
     return {
-      last_id: 2,
+      loading: false,
+      last_id: null,
       newTodo: "",
       editTodoCache: "",
-      todos: [
-        {
-          id: 1,
-          text: "Learn Vue.js",
-          completed: false,
-          editing: false
-        },
-        {
-          id: 2,
-          text: "Build a project with vue.js",
-          completed: false,
-          editing: false
-        }
-      ]
+      todos: [ ]
     };
+  },
+
+  created() {
+    this.updateTodos();
   },
 
   computed: {
     remaining() {
-      return this.todos.filter(todo => !todo.completed).length;
+      return this.todos.filter(todo => !todo.complete).length;
     }
   },
 
   methods: {
     addTodo() {
       if (this.newTodo.trim() == "") return;
-      let todo = {
-        id: ++this.last_id,
-        text: this.newTodo,
-        components: false,
-        editing: false
-      };
-      this.todos.push(todo);
-      this.newTodo = "";
-    },
-    editTodo(todo) {
-      if (todo.text.trim() == "") todo.text = this.editTodoCache;
-      todo.editing = false;
+
+      this.loading = true;
+
+      ToDoService.addItem(this.newTodo)
+        .then(this.updateTodos)
+        .catch(this.handleError)
+        .finally(() => {
+          this.resetLoading();
+          this.resetNew();
+        });
     },
     cancelEdit(todo) {
-      todo.text = this.editTodoCache;
+      todo.description = this.editTodoCache;
       todo.editing = false;
+    },
+    completeTodo(todo) {
+      this.loading = true;
+
+      ToDoService.completeItem(todo)
+        .catch(() => {
+          todo.complete = !todo.complete;
+        })
+        .finally(this.resetLoading);
+    },
+    deleteTodo(todo) {
+      this.loading = true;
+      ToDoService.deleteItem(todo)
+        .then(this.updateTodos)
+        .catch(this.handleError)
+        .finally(this.resetLoading);
+    },
+    editTodo(todo) {
+      if (todo.description.trim() == "") todo.description = this.editTodoCache;
+
+      todo.editing = false;
+      this.loading = true;
+
+      ToDoService.updateItem(todo)
+        .catch((error) => {
+          todo.description = this.editTodoCache;
+          this.handleError(error);
+        })
+        .finally(this.resetLoading);
+    },
+    handleError(error) {
+      console.log(error);
+      alert('Vueston, we have a problem...');
+    },
+    resetLoading() {
+      this.loading = false;
+    },
+    resetNew() {
+      this.newTodo = "";
+    },
+    set(todos) {
+      this.todos = todos;
+    },
+    updateTodos() {
+      this.loading = true;
+
+      return ToDoService.get()
+        .then(this.set)
+        .catch(this.handleError)
+        .finally(this.resetLoading);
     }
   },
 
@@ -98,10 +150,50 @@ export default {
 </script>
 
 <style scoped>
+@-moz-keyframes pulse {
+    from { -moz-transform: scale(1); }
+    50% { -moz-transform: scale(2); }
+    to { -moz-transform: scale(1); }
+}
+@-webkit-keyframes pulse {
+    from { -webkit-transform: scale(1); }
+    50% { -webkit-transform: scale(2); }
+    to { -webkit-transform: scale(1); }
+}
+@keyframes pulse {
+    from {transform:scale(1);}
+    50% {transform:scale(2);}
+    to {transform:scale(1);}
+}
+
 .container {
   min-height: 300px;
   display: flex;
   flex-direction: column;
+}
+
+.form {
+  position: relative;
+}
+
+.loading {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(255,255,255,0.8);
+  z-index: 1000;
+}
+
+.loading img {
+  opacity: 0.5;
+  top: calc(50% - 20px);
+  position: absolute;
+  left: calc(50% - 20px);
+  width: 40px;
+  height: 40px;
+  -webkit-animation: pulse 2s infinite linear;
 }
 
 footer {
@@ -133,8 +225,20 @@ footer {
   flex: 1;
 }
 
-.todo-list .list .text.completed {
+.todo-list .list.completed .text {
   text-decoration: line-through;
+}
+
+.todo-list .delete-item img {
+  height: 20px;
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+  opacty: 0.6;
+}
+
+.todo-list .delete-item img:hover {
+  opacity: 1;
 }
 
 .input__div {
@@ -249,6 +353,10 @@ footer {
 
 .material-checkbox > input:active + span::before {
   border-color: #41b883;
+}
+
+.list.completed .material-checkbox > input + span {
+  opacity: 0.5;
 }
 
 .material-checkbox > input:checked:active + span::before {
